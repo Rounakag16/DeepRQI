@@ -17,12 +17,17 @@ const MS_PER_DAY = 86400000;
 
 /**
  * @param {{score: number, generatedAt: Date|string}[]} scoreHistory
+ * @param {object} [options]
+ * @param {Date|null} [options.since] - Optional date of the latest repair event.
  * @returns {object} forecast -- see individual branches for shape
  */
-function predictDegradation(scoreHistory) {
+function predictDegradation(scoreHistory, options = {}) {
+  const { since = null } = options;
+
   const points = (scoreHistory || [])
     .filter((s) => s && s.score != null && s.generatedAt)
     .map((s) => ({ score: s.score, generatedAt: new Date(s.generatedAt) }))
+    .filter((s) => !since || s.generatedAt >= since)
     .sort((a, b) => a.generatedAt - b.generatedAt);
 
   if (points.length === 0) {
@@ -40,8 +45,11 @@ function predictDegradation(scoreHistory) {
   if (points.length < 2) {
     return {
       predictable: false,
-      reason: "Needs at least two inspections to establish a trend.",
+      reason: since 
+        ? "Needs at least two inspections since the last repair to establish a new trend."
+        : "Needs at least two inspections to establish a trend.",
       alreadyCritical,
+      latestRepairAt: since,
     };
   }
 
@@ -62,6 +70,7 @@ function predictDegradation(scoreHistory) {
       predictable: false,
       reason: "Not enough spread in inspection dates to fit a trend.",
       alreadyCritical,
+      latestRepairAt: since,
     };
   }
 
@@ -75,6 +84,7 @@ function predictDegradation(scoreHistory) {
       reason: "RQI is stable or improving over the recorded history -- no decline to project forward.",
       trendPointsPerMonth: Math.round(slope * 30 * 100) / 100,
       alreadyCritical,
+      latestRepairAt: since,
     };
   }
 
@@ -105,6 +115,7 @@ function predictDegradation(scoreHistory) {
     projectedPoorDate,
     projectedCriticalDate,
     recommendedRepairByDate,
+    latestRepairAt: since,
   };
 }
 

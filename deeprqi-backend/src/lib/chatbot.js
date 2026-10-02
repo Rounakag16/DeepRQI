@@ -7,6 +7,7 @@
 const prisma = require("./prisma");
 const { predictDegradation } = require("./degradation");
 const { generateExplanation } = require("./xaiSummary");
+const axios = require("axios");
 
 const HELP_TOPICS = [
   {
@@ -134,7 +135,27 @@ async function handleRoadQuestion(fragment) {
     ).toLocaleDateString()}.`;
   }
 
-  return `${road.roadName} is currently ${latestScore.category} (${Math.round(latestScore.score)}/100). ${explanation}${forecastNote}`;
+  const baseFact = `${road.roadName} is currently ${latestScore.category} (${Math.round(latestScore.score)}/100). ${explanation}${forecastNote}`;
+
+  const aiExplanation = await askOllama(
+    `You are DeepRQI, an AI road inspector. You have the following hard data about a road: "${baseFact}". Rewrite this into a concise, professional, and easily understandable summary for a city administrator.`
+  );
+
+  return aiExplanation || baseFact;
+}
+
+async function askOllama(prompt) {
+  try {
+    const res = await axios.post("http://localhost:11434/api/generate", {
+      model: "gpt oss 20b",
+      prompt: prompt,
+      stream: false
+    });
+    return res.data.response;
+  } catch (err) {
+    console.error("Ollama error:", err.message);
+    return null;
+  }
 }
 
 async function handleMessage(message, user) {
@@ -160,6 +181,14 @@ async function handleMessage(message, user) {
 
   for (const topic of HELP_TOPICS) {
     if (topic.test.test(text)) return topic.reply;
+  }
+
+  // Fallback to Ollama AI
+  const aiResponse = await askOllama(
+    `You are DeepRQI, an AI road inspection assistant. The user asked: "${text}". Provide a helpful and concise response.`
+  );
+  if (aiResponse) {
+    return aiResponse;
   }
 
   return (

@@ -65,6 +65,10 @@ router.get("/:id", requireAuth, async (req, res) => {
 				orderBy: { uploadedAt: "desc" },
 				include: { detections: true, scores: true, uploadedBy: { select: { name: true } } },
 			},
+      repairEvents: {
+        orderBy: { repairedAt: "desc" },
+        include: { recordedBy: { select: { name: true } } },
+      }
 		},
 	});
 
@@ -75,7 +79,9 @@ router.get("/:id", requireAuth, async (req, res) => {
 	const scoreHistory = road.images
 		.flatMap((img) => img.scores)
 		.map((s) => ({ score: s.score, generatedAt: s.generatedAt }));
-	const degradationForecast = predictDegradation(scoreHistory);
+    
+  const latestRepairAt = road.repairEvents.length > 0 ? road.repairEvents[0].repairedAt : null;
+	const degradationForecast = predictDegradation(scoreHistory, { since: latestRepairAt });
 
 	res.json({ ...road, degradationForecast });
 });
@@ -100,6 +106,88 @@ router.get("/:id/report", requireAuth, async (req, res) => {
 	res.setHeader("Content-Type", "application/pdf");
 	res.setHeader("Content-Disposition", `attachment; filename="${safeName}_report.pdf"`);
 	await writeRoadReportPdf(road, res);
+});
+
+// GET /api/roads/:id/repairs
+router.get("/:id/repairs", requireAuth, async (req, res) => {
+  const repairs = await prisma.repairEvent.findMany({
+    where: { roadId: req.params.id },
+    orderBy: { repairedAt: "desc" },
+    include: { recordedBy: { select: { name: true } } },
+  });
+  res.json(repairs);
+});
+
+const { requireRole } = require("../middleware/auth");
+// POST /api/roads/:id/repairs (ADMIN only)
+router.post("/:id/repairs", requireAuth, requireRole("ADMIN"), async (req, res) => {
+  const { repairedAt, notes } = req.body;
+  
+  if (!repairedAt) {
+    return res.status(400).json({ error: "repairedAt is required" });
+  }
+
+  const road = await prisma.road.findUnique({ where: { id: req.params.id } });
+  if (!road) return res.status(404).json({ error: "Road not found." });
+
+  const repair = await prisma.repairEvent.create({
+    data: {
+      roadId: req.params.id,
+      repairedAt: new Date(repairedAt),
+      recordedById: req.user.id,
+      notes: notes || null,
+    },
+    include: { recordedBy: { select: { name: true } } },
+  });
+  
+  res.status(201).json(repair);
+});
+
+// POST /api/roads - Ensure road exists (find or create) for Dashcam
+router.post("/", requireAuth, async (req, res) => {
+  let { roadName, city, district, state, lat, lng } = req.body;
+  if (!roadName && (!lat || !lng)) {
+    return res.status(400).json({ error: "Provide roadName or lat/lng." });
+  }
+
+  let road = null;
+  // 1. Try to find by GPS
+  if (lat && lng) {
+    const nearby = await findRoadsNear(parseFloat(lat), parseFloat(lng), 0.05);
+    if (nearby.length > 0) {
+      road = await prisma.road.findUnique({ where: { id: nearby[0].id } });
+    }
+  }
+
+  // 2. Fall back to name match
+  if (!road && roadName) {
+    road = await prisma.road.findFirst({
+      where: {
+        roadName: { equals: roadName.trim(), mode: "insensitive" },
+        city: city ? { equals: city.trim(), mode: "insensitive" } : null,
+      },
+    });
+  }
+
+  // 3. Create if not found
+  if (!road) {
+    if (!roadName) {
+      // Need a name to create it. In a real app we'd reverse-geocode here.
+      return res.status(400).json({ error: "roadName is required for a new road." });
+    }
+    road = await prisma.road.create({
+      data: {
+        roadName: roadName.trim(),
+        city: city ? city.trim() : null,
+        district: district ? district.trim() : null,
+        state: state ? state.trim() : null,
+        lat: lat ? parseFloat(lat) : null,
+        lng: lng ? parseFloat(lng) : null,
+      },
+    });
+  }
+
+  res.json(road);
 });
 
 module.exports = router;

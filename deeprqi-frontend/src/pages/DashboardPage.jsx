@@ -5,6 +5,7 @@ import L from "leaflet";
 import { getRoads, getDashboardStats } from "../api/client";
 import { bandForScore } from "../utils/rqiBands";
 import StatsCards from "../components/StatsCards";
+import RqiGauge from "../components/RqiGauge";
 
 // Leaflet's default marker image paths break under most bundlers (Vite
 // included) because it expects them relative to the CSS file, not the JS
@@ -25,6 +26,48 @@ function bandIcon(color) {
 
 const DEFAULT_CENTER = [20.5937, 78.9629]; // India centroid, fallback only
 const DEFAULT_ZOOM = 5;
+
+function BudgetPlanner({ poorCriticalRoads }) {
+  const [budget, setBudget] = useState(1000000);
+  const [costPerKm, setCostPerKm] = useState(50000);
+
+  const fixableRoads = useMemo(() => {
+    if (!poorCriticalRoads || poorCriticalRoads.length === 0) return 0;
+    const sorted = [...poorCriticalRoads].sort((a, b) => a.score - b.score);
+    let remainingBudget = budget;
+    let count = 0;
+    
+    for (const road of sorted) {
+      const cost = road.distance * costPerKm;
+      if (remainingBudget >= cost) {
+        remainingBudget -= cost;
+        count++;
+      } else {
+        break;
+      }
+    }
+    return count;
+  }, [budget, costPerKm, poorCriticalRoads]);
+
+  return (
+    <div className="panel" style={{ marginTop: "20px" }}>
+      <h3 style={{ fontSize: "16px", marginBottom: "15px" }}>Budget Planner</h3>
+      <div style={{ display: "flex", gap: "20px", marginBottom: "15px" }}>
+        <div className="field" style={{ flex: 1 }}>
+          <label>Total Budget ($)</label>
+          <input type="number" value={budget} onChange={e => setBudget(Number(e.target.value))} />
+        </div>
+        <div className="field" style={{ flex: 1 }}>
+          <label>Cost per KM ($)</label>
+          <input type="number" value={costPerKm} onChange={e => setCostPerKm(Number(e.target.value))} />
+        </div>
+      </div>
+      <div style={{ padding: "15px", background: "var(--bg)", borderRadius: "3px", border: "1px solid var(--line)" }}>
+        With <strong>${budget.toLocaleString()}</strong>, you can fully repair <strong style={{ color: "var(--accent)", fontSize: "18px" }}>{fixableRoads}</strong> out of {poorCriticalRoads?.length || 0} Critical/Poor roads (prioritizing the lowest RQI first).
+      </div>
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const [roads, setRoads] = useState([]);
@@ -110,6 +153,24 @@ export default function DashboardPage() {
                 );
               })}
             </MapContainer>
+          </div>
+
+          <div style={{ display: "flex", gap: "20px", marginTop: "20px" }}>
+            <div className="panel" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <h3 style={{ fontSize: "16px", marginBottom: "10px", alignSelf: "flex-start" }}>Network RQI</h3>
+              <p style={{ color: "var(--text-muted)", fontSize: "13px", marginBottom: "15px", alignSelf: "flex-start" }}>
+                {stats.pctPoorCritical}% of network is in Critical or Poor condition.
+              </p>
+              {stats.avgScore != null ? (
+                <RqiGauge score={stats.avgScore} category={bandForScore(stats.avgScore).label} />
+              ) : (
+                <p style={{ color: "var(--text-muted)" }}>No data</p>
+              )}
+            </div>
+
+            <div style={{ flex: 2 }}>
+              <BudgetPlanner poorCriticalRoads={stats.poorCriticalRoads} />
+            </div>
           </div>
 
           {roads.length > mappedRoads.length && (

@@ -6,6 +6,7 @@ const crypto = require("crypto");
 const prisma = require("../lib/prisma");
 const { requireAuth } = require("../middleware/auth");
 const { setRoadLocation, findRoadsNear } = require("../lib/geo");
+const { reverseGeocode } = require("../lib/geocode");
 const { uploadBuffer } = require("../lib/storage");
 const { generateExplanation } = require("../lib/xaiSummary");
 const { fetchStoredImageBuffer, toDetectionCreateInput } = require("../lib/imageHelpers");
@@ -46,37 +47,79 @@ router.post("/upload", requireAuth, upload.single("file"), async (req, res) => {
     return res.status(400).json({ error: "No image file provided (field name: 'file')." });
   }
 
-  const { roadName, city, district, state, lat, lng, model } = req.body;
-  if (!roadName) {
-    return res.status(400).json({ error: "roadName is required." });
-  }
+  let { roadName, city, district, state, lat, lng, model } = req.body;
+  // Note: validation of roadName is deferred until after geocoding attempt
 
   try {
-    // 1. Find or create the road this image belongs to.
-    // Prefer matching by physical location -- if this upload's GPS falls
-    // within ROAD_MATCH_RADIUS_KM of an existing road, treat it as that
-    // same road regardless of how roadName was typed this time.
     let road = null;
+    let geo = null;
+    
+    // 1. Prefer matching by physical location
     if (lat && lng) {
       const nearby = await findRoadsNear(parseFloat(lat), parseFloat(lng), ROAD_MATCH_RADIUS_KM);
       if (nearby.length > 0) {
         road = await prisma.road.findUnique({ where: { id: nearby[0].id } });
       }
     }
-    // Fall back to a case/whitespace-insensitive name+city match (covers
-    // uploads with no GPS at all), then finally create a new road.
-    if (!road) {
+
+    if (road) {
+      // Form didn't provide a roadName, but we found the road by GPS, so use its name.
+      if (!roadName) roadName = road.roadName;
+      
+      // If the road exists but is missing district or state, geocode to fill them in.
+      if (lat && lng && (!road.district || !road.state)) {
+        geo = await reverseGeocode(parseFloat(lat), parseFloat(lng));
+        if (geo) {
+          road = await prisma.road.update({
+            where: { id: road.id },
+            data: {
+              district: road.district || geo.district,
+              state: road.state || geo.state,
+              city: road.city || geo.city,
+              postcode: road.postcode || geo.postcode,
+              geocodedAt: new Date()
+            }
+          });
+        }
+      }
+    } else {
+      // 2. No road found by GPS.
+      // If we are missing fields (especially roadName), try geocoding first.
+      if (lat && lng && (!roadName || !city || !district || !state)) {
+        geo = await reverseGeocode(parseFloat(lat), parseFloat(lng));
+        if (geo) {
+          if (!roadName) roadName = geo.road;
+          if (!city) city = geo.city;
+          if (!district) district = geo.district;
+          if (!state) state = geo.state;
+        }
+      }
+
+      if (!roadName) {
+        return res.status(400).json({ error: "roadName is required (or must be resolvable from GPS)." });
+      }
+
+      // Fall back to a case/whitespace-insensitive name+city match
       road = await prisma.road.findFirst({
         where: {
           roadName: { equals: roadName.trim(), mode: "insensitive" },
           city: city ? { equals: city.trim(), mode: "insensitive" } : null,
         },
       });
-    }
-    if (!road) {
-      road = await prisma.road.create({
-        data: { roadName, city, district, state },
-      });
+
+      // 3. Finally, create a new road if it doesn't exist.
+      if (!road) {
+        road = await prisma.road.create({
+          data: { 
+            roadName: roadName.trim(), 
+            city: city ? city.trim() : null, 
+            district: district ? district.trim() : null, 
+            state: state ? state.trim() : null,
+            postcode: geo ? geo.postcode : null,
+            geocodedAt: geo ? new Date() : null
+          },
+        });
+      }
     }
 
     // Set the road's map location from this image's GPS the first time
@@ -136,7 +179,7 @@ router.post("/upload", requireAuth, upload.single("file"), async (req, res) => {
       });
     }
 
-    const { detections, rqi, heatmap_base64 } = aiResponse.data;
+    const { detections, rqi, heatmap_base64, image_width, image_height } = aiResponse.data;
 
     // 4. Persist the heatmap PNG too, alongside the original photo.
     const heatmapUrl = await uploadBuffer(
@@ -156,6 +199,8 @@ router.post("/upload", requireAuth, upload.single("file"), async (req, res) => {
         modelUsed: model || null,
         lat: lat ? parseFloat(lat) : null,
         lng: lng ? parseFloat(lng) : null,
+        imageWidth: image_width || null,
+        imageHeight: image_height || null,
         detections: {
           create: toDetectionCreateInput(detections),
         },
@@ -280,7 +325,7 @@ router.post("/:id/retry", requireAuth, async (req, res) => {
     return res.status(502).json({ error: "AI service still unavailable. Try again later." });
   }
 
-  const { detections, rqi, heatmap_base64 } = aiResponse.data;
+  const { detections, rqi, heatmap_base64, image_width, image_height } = aiResponse.data;
 
   const heatmapUrl = await uploadBuffer(
     Buffer.from(heatmap_base64, "base64"),
@@ -293,6 +338,8 @@ router.post("/:id/retry", requireAuth, async (req, res) => {
     data: {
       heatmapPath: heatmapUrl,
       modelUsed: model || roadImage.modelUsed || null,
+      imageWidth: image_width || roadImage.imageWidth,
+      imageHeight: image_height || roadImage.imageHeight,
       detections: {
         create: toDetectionCreateInput(detections),
       },

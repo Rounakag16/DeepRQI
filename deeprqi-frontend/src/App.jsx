@@ -10,6 +10,10 @@ import PendingPage from "./pages/PendingPage";
 import ModelComparePage from "./pages/ModelComparePage";
 import RepairPriorityPage from "./pages/RepairPriorityPage";
 import ChatWidget from "./components/ChatWidget";
+import LiveCapturePage from "./pages/LiveCapturePage";
+import PublicPortalPage from "./pages/PublicPortalPage";
+import LandingPage from "./pages/LandingPage";
+import SurveyDetailsPage from "./pages/SurveyDetailsPage";
 
 function Topbar() {
   const { user, logout } = useAuth();
@@ -17,32 +21,48 @@ function Topbar() {
   return (
     <div className="topbar">
       <div className="topbar__brand">
-        <h1>
-          Deep<span className="mark">RQI</span>
-        </h1>
+        <Link to="/" style={{ textDecoration: "none" }}>
+          <h1>
+            Deep<span className="mark">RQI</span>
+          </h1>
+        </Link>
       </div>
-      {user && (
-        <div className="topbar__nav">
-          {user.role === "ADMIN" && (
-            <Link to="/dashboard" style={{ color: "var(--text-muted)", textDecoration: "none" }}>
-              Dashboard
+      <div className="topbar__nav">
+        {user ? (
+          <>
+            {user.role === "ADMIN" && (
+              <Link to="/dashboard" style={{ color: "var(--text-primary)", textDecoration: "none" }}>
+                Dashboard
+              </Link>
+            )}
+            {user.role === "ADMIN" && (
+              <Link to="/priority" style={{ color: "var(--text-primary)", textDecoration: "none" }}>
+                Repair priority
+              </Link>
+            )}
+            <Link to="/upload" style={{ color: "var(--text-primary)", textDecoration: "none" }}>
+              New Inspection
             </Link>
-          )}
-          {user.role === "ADMIN" && (
-            <Link to="/priority" style={{ color: "var(--text-muted)", textDecoration: "none" }}>
-              Repair priority
+            <Link to="/pending" style={{ color: "var(--text-primary)", textDecoration: "none" }}>
+              Pending
             </Link>
-          )}
-          <Link to="/upload" style={{ color: "var(--text-muted)", textDecoration: "none" }}>
-            New Inspection
-          </Link>
-          <Link to="/pending" style={{ color: "var(--text-muted)", textDecoration: "none" }}>
-            Pending
-          </Link>
-          <span className="mono">{user.name}</span>
-          <button onClick={logout}>Log out</button>
-        </div>
-      )}
+            <Link to="/portal" style={{ color: "var(--text-primary)", textDecoration: "none" }}>
+              Public Portal
+            </Link>
+            <span className="mono" style={{ color: "var(--accent-primary)" }}>{user.name}</span>
+            <button onClick={logout}>Log out</button>
+          </>
+        ) : (
+          <>
+            <Link to="/portal" style={{ color: "var(--text-primary)", textDecoration: "none" }}>
+              Public Portal
+            </Link>
+            <Link to="/login" className="btn-login" style={{ textDecoration: "none" }}>
+              Sign In
+            </Link>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -58,11 +78,13 @@ function AppRoutes() {
   // Milestone 10: ADMIN lands on the dashboard (aggregate view), INSPECTOR
   // lands on upload (field work) -- neither role has a route it can't reach
   // from its own default landing page.
-  const homePath = user ? (user.role === "ADMIN" ? "/dashboard" : "/upload") : "/login";
+  const homePath = user ? (user.role === "ADMIN" ? "/dashboard" : "/upload") : "/";
 
   return (
     <Routes>
+      <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={user ? <Navigate to={homePath} /> : <LoginPage />} />
+      <Route path="/portal" element={<PublicPortalPage />} />
       <Route
         path="/dashboard"
         element={
@@ -116,6 +138,22 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <ModelComparePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/survey/:roadId"
+        element={
+          <ProtectedRoute>
+            <LiveCapturePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/survey-results/:id"
+        element={
+          <ProtectedRoute>
+            <SurveyDetailsPage />
           </ProtectedRoute>
         }
       />

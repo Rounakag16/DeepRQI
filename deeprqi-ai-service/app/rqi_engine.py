@@ -36,6 +36,7 @@ def compute_rqi(detections: list[dict]) -> dict:
 
         total_penalty += penalty
         breakdown.append({
+            "id": det.get("id"),
             "damage_type": damage_type,
             "severity": severity,
             "weight": weight,

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams, Link } from "react-router-dom";
-import { getImage } from "../api/client";
+import { getImage, patchDetectionStatus } from "../api/client";
 import RqiGauge from "../components/RqiGauge";
 import BoundingBoxOverlay from "../components/BoundingBoxOverlay";
 import DetectionList from "../components/DetectionList";
@@ -41,6 +41,23 @@ export default function ResultsPage() {
       cancelled = true;
     };
   }, [imageId, stateResult]);
+
+  const handleStatusChange = async (detectionId, newStatus) => {
+    try {
+      const { detection, rqi: newRqi } = await patchDetectionStatus(detectionId, newStatus);
+      setResult(prev => {
+        if (!prev) return prev;
+        const newDetections = prev.image.detections.map(d => d.id === detectionId ? { ...d, status: newStatus } : d);
+        return {
+          ...prev,
+          image: { ...prev.image, detections: newDetections },
+          rqi: newRqi || prev.rqi
+        };
+      });
+    } catch (err) {
+      alert("Failed to update status.");
+    }
+  };
 
   if (loading) {
     return (
@@ -139,8 +156,17 @@ export default function ResultsPage() {
             <InfoTooltip text="Starts at 100 and subtracts a penalty for each detected defect. The penalty depends on damage type and severity (how much of the photo it covers) — see the breakdown below for exactly how this score was reached." />
           </h3>
           <RqiGauge score={rqi.score} category={rqi.category} />
+          {rqi.recomputedAt && (
+            <span style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
+              (Recomputed after review)
+            </span>
+          )}
           <div style={{ width: "100%", marginTop: "18px", borderTop: "1px solid var(--line)", paddingTop: "16px" }}>
-            <DetectionList breakdown={rqi.breakdown} />
+            <DetectionList 
+              detections={image.detections} 
+              breakdown={rqi.breakdown} 
+              onStatusChange={handleStatusChange} 
+            />
           </div>
           {rqi.explanation && (
             <div style={{ width: "100%", marginTop: "16px", borderTop: "1px solid var(--line)", paddingTop: "16px" }}>

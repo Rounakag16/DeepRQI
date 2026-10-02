@@ -22,3 +22,7 @@ class PredictResponse(BaseModel):
     heatmap_base64: str  # PNG, base64-encoded
     image_width: int
     image_height: int
+
+class RQIComputeRequest(BaseModel):
+    detections: List[dict]
+

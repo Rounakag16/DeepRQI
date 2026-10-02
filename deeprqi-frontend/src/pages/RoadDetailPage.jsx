@@ -124,6 +124,19 @@ export default function RoadDetailPage() {
             {reportDownloading ? "Generating…" : "Download report"}
           </button>
           <button
+            onClick={() => navigate(`/survey/${road.id}`)}
+            style={{
+              background: "none",
+              border: "1px solid var(--accent)",
+              color: "var(--accent)",
+              padding: "8px 16px",
+              borderRadius: "3px",
+              fontSize: "13px",
+            }}
+          >
+            Start Dashcam Survey
+          </button>
+          <button
             onClick={() => navigate(backPath)}
             style={{
               background: "none",

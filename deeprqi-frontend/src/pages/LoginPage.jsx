@@ -55,9 +55,9 @@ export default function LoginPage() {
               className="btn-primary"
               style={{
                 flex: 1,
-                background: mode === "login" ? "var(--accent)" : "var(--bg-road)",
-                color: mode === "login" ? "#1a1a1a" : "var(--text-muted)",
-                border: "1px solid var(--line)",
+                background: mode === "login" ? "linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))" : "transparent",
+                color: mode === "login" ? "#fff" : "var(--text-muted)",
+                border: mode === "login" ? "none" : "1px solid var(--line)",
               }}
             >
               Log in
@@ -68,9 +68,9 @@ export default function LoginPage() {
               className="btn-primary"
               style={{
                 flex: 1,
-                background: mode === "register" ? "var(--accent)" : "var(--bg-road)",
-                color: mode === "register" ? "#1a1a1a" : "var(--text-muted)",
-                border: "1px solid var(--line)",
+                background: mode === "register" ? "linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))" : "transparent",
+                color: mode === "register" ? "#fff" : "var(--text-muted)",
+                border: mode === "register" ? "none" : "1px solid var(--line)",
               }}
             >
               Register

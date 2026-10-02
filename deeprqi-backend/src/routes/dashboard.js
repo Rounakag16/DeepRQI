@@ -11,7 +11,10 @@ const router = express.Router();
 // Total roads, average RQI, and critical-road count -- all computed off
 // each road's *latest* score, not every score ever recorded.
 router.get("/stats", requireAuth, requireRole("ADMIN"), async (req, res) => {
-	const totalRoads = await prisma.road.count();
+	const roads = await prisma.road.findMany({
+		include: { surveySessions: { orderBy: { endedAt: "desc" }, take: 1 } },
+	});
+	const totalRoads = roads.length;
 
 	const latest = await prisma.$queryRaw`
     SELECT DISTINCT ON (road_id) road_id AS "roadId", score, category
@@ -22,12 +25,28 @@ router.get("/stats", requireAuth, requireRole("ADMIN"), async (req, res) => {
 	const scoredRoads = latest.length;
 	const avgScore = scoredRoads ? latest.reduce((sum, r) => sum + r.score, 0) / scoredRoads : null;
 	const criticalCount = latest.filter((r) => r.category === "Critical").length;
+  
+  let poorOrCriticalCount = 0;
+  const poorCriticalRoads = [];
+
+  latest.forEach(r => {
+    if (r.score < 40) {
+      poorOrCriticalCount++;
+      const roadInfo = roads.find(x => x.id === r.roadId);
+      const dist = roadInfo?.surveySessions?.[0]?.totalDistanceKm || 1;
+      poorCriticalRoads.push({ roadId: r.roadId, distance: dist, score: r.score });
+    }
+  });
+
+  const pctPoorCritical = scoredRoads ? Math.round((poorOrCriticalCount / scoredRoads) * 100) : 0;
 
 	res.json({
 		totalRoads,
 		scoredRoads,
 		avgScore: avgScore !== null ? Math.round(avgScore * 10) / 10 : null,
 		criticalCount,
+    pctPoorCritical,
+    poorCriticalRoads,
 	});
 });
 

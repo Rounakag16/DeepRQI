@@ -40,6 +40,11 @@ export async function uploadImage(file, meta) {
   return data;
 }
 
+export async function ensureRoad(meta) {
+  const { data } = await client.post("/api/roads", meta);
+  return data;
+}
+
 // Multi-model support: which named models the AI service currently has
 // loaded (see ai-service/app/config.py MODEL_REGISTRY). With only one
 // model configured this returns a single entry -- callers should treat a
@@ -122,6 +127,72 @@ export async function retryImage(id) {
 // Chatbot: rule-based assistant, see backend/src/lib/chatbot.js.
 export async function sendChatMessage(message) {
   const { data } = await client.post("/api/chat", { message });
+  return data;
+}
+
+export async function reverseGeocode(lat, lng) {
+  const { data } = await client.get(`/api/geo/reverse?lat=${lat}&lng=${lng}`);
+  return data;
+}
+
+export async function patchDetectionStatus(id, status) {
+  const { data } = await client.patch(`/api/detections/${id}/status`, { status });
+  return data;
+}
+
+export async function getSurvey(id) {
+  const { data } = await client.get(`/api/surveys/${id}`);
+  return data;
+}
+
+export async function startSurvey(roadId) {
+  const { data } = await client.post("/api/surveys/start", { roadId });
+  return data;
+}
+
+export async function sendSurveyFrame(sessionId, frameBlob, lat, lng, speed) {
+  const form = new FormData();
+  form.append("image", frameBlob);
+  form.append("lat", lat);
+  form.append("lng", lng);
+  if (speed !== null && speed !== undefined) form.append("speed", speed);
+
+  const { data } = await client.post(`/api/surveys/${sessionId}/frame`, form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+}
+
+export async function endSurvey(sessionId) {
+  const { data } = await client.post(`/api/surveys/${sessionId}/end`);
+  return data;
+}
+
+export async function getComplaints() {
+  const { data } = await client.get("/api/complaints");
+  return data;
+}
+
+export async function submitComplaint(description, lat, lng, imageBlob) {
+  const form = new FormData();
+  form.append("description", description);
+  form.append("lat", lat);
+  form.append("lng", lng);
+  if (imageBlob) form.append("image", imageBlob);
+
+  const { data } = await client.post("/api/complaints", form, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return data;
+}
+
+export async function upvoteComplaint(id) {
+  const { data } = await client.post(`/api/complaints/${id}/upvote`);
+  return data;
+}
+
+export async function patchComplaintStatus(id, status) {
+  const { data } = await client.patch(`/api/complaints/${id}/status`, { status });
   return data;
 }
 

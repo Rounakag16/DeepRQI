@@ -12,7 +12,7 @@ from .config import CLASS_NAMES, MODEL_REGISTRY, DEFAULT_MODEL_NAME
 from .explainability import EigenCAM, get_target_layer
 from .occlusion import compute_occlusion_map, occlusion_map_to_overlay
 from .rqi_engine import compute_rqi
-from .schemas import PredictResponse
+from .schemas import PredictResponse, RQIResult, RQIComputeRequest
 from .severity import compute_severity
 
 logging.basicConfig(level=logging.INFO)
@@ -111,7 +111,7 @@ async def predict(file: UploadFile = File(...), model: str = DEFAULT_MODEL_NAME)
 
     img_h, img_w = img.shape[:2]
 
-    results = yolo_model.predict(img, verbose=False)[0]
+    results = yolo_model.predict(img, verbose=False, conf=0.15)[0]
 
     detections = []
     for box in results.boxes:
@@ -144,6 +144,49 @@ async def predict(file: UploadFile = File(...), model: str = DEFAULT_MODEL_NAME)
         "image_width": img_w,
         "image_height": img_h,
     }
+
+
+@app.post("/detect")
+def detect(file: UploadFile = File(...), model: str = DEFAULT_MODEL_NAME):
+    """
+    Fast path for live capture. Skips EigenCAM and RQI computation.
+    Runs synchronously so FastAPI offloads it to a threadpool, preventing
+    the CPU-bound YOLO inference from blocking the async event loop.
+    """
+    entry = _get_model_entry(model)
+    yolo_model = entry["model"]
+
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be an image.")
+
+    contents = file.file.read()
+    npimg = np.frombuffer(contents, np.uint8)
+    img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+    if img is None:
+        raise HTTPException(status_code=400, detail="Could not decode image.")
+
+    img_h, img_w = img.shape[:2]
+
+    results = yolo_model.predict(img, verbose=False, conf=0.15)[0]
+
+    detections = []
+    for box in results.boxes:
+        cls_id = int(box.cls[0])
+        conf = float(box.conf[0])
+        xyxy = [float(v) for v in box.xyxy[0].tolist()]
+
+        damage_type = CLASS_NAMES[cls_id] if cls_id < len(CLASS_NAMES) else f"unknown_class_{cls_id}"
+        severity = compute_severity(xyxy, img_w, img_h)
+
+        detections.append({
+            "damage_type": damage_type,
+            "confidence": round(conf, 4),
+            "bbox": [round(v, 1) for v in xyxy],
+            "severity": severity,
+        })
+
+    return {"detections": detections}
+
 
 
 @app.post("/predict/occlusion")
@@ -196,3 +239,14 @@ async def predict_occlusion(
         "overlay_base64": overlay_b64,
         "detection_found": bool(occlusion_map.max() > 0) if occlusion_map.size else False,
     }
+
+
+@app.post("/rqi/compute", response_model=RQIResult)
+def recompute_rqi(req: RQIComputeRequest):
+    """
+    Recompute RQI from a manually verified list of detections.
+    The list should omit false positives and include only verified
+    or still-detected items.
+    """
+    return compute_rqi(req.detections)
+
