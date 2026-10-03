@@ -6,6 +6,7 @@ import { getRoads, getDashboardStats } from "../api/client";
 import { bandForScore } from "../utils/rqiBands";
 import StatsCards from "../components/StatsCards";
 import RqiGauge from "../components/RqiGauge";
+import AISummaryPanel from "../components/AISummaryPanel";
 
 // Leaflet's default marker image paths break under most bundlers (Vite
 // included) because it expects them relative to the CSS file, not the JS
@@ -172,6 +173,12 @@ export default function DashboardPage() {
               <BudgetPlanner poorCriticalRoads={stats.poorCriticalRoads} />
             </div>
           </div>
+
+          {/* AI Network Summary */}
+          <AISummaryPanel
+            title="AI Executive Summary"
+            prompt={`Generate an executive summary for a city road maintenance administrator:\n\nNetwork Statistics:\n- Total roads monitored: ${stats.totalRoads}\n- Roads with inspections: ${stats.scoredRoads}\n- Average RQI across network: ${stats.avgScore || "N/A"}\n- Roads in Critical condition: ${stats.criticalCount}\n- Percentage in Poor/Critical: ${stats.pctPoorCritical}%\n\nProvide:\n1. Overall network health assessment (1-2 sentences)\n2. Key areas of concern\n3. Budget allocation priorities\n4. Recommended immediate actions`}
+          />
 
           {roads.length > mappedRoads.length && (
             <p style={{ color: "var(--text-muted)", fontSize: "12px", marginTop: "10px" }}>

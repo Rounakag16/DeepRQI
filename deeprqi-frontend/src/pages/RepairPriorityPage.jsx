@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { getRepairPriorityList } from "../api/client";
 import { bandForScore } from "../utils/rqiBands";
 import InfoTooltip from "../components/InfoTooltip";
+import AISummaryPanel from "../components/AISummaryPanel";
 
 function formatINR(amount) {
   return `₹${amount.toLocaleString("en-IN")}`;
@@ -118,6 +119,12 @@ export default function RepairPriorityPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* AI Repair Priority Analysis */}
+            <AISummaryPanel
+              title="AI Repair Prioritization"
+              prompt={`Analyze this repair priority list and provide strategic recommendations for a city maintenance manager:\n\nTotal roads needing repair: ${roads.length}\nTop priority roads:\n${roads.slice(0, 10).map((r, i) => `${i + 1}. ${r.roadName} - RQI: ${Math.round(r.latestScore)}/100, Category: ${r.latestCategory}, Est. Cost: ₹${r.estimatedCost?.toLocaleString() || "N/A"}`).join("\n")}\n\nProvide:\n1. Recommended repair sequence (which roads to fix first and why)\n2. Budget optimization suggestions\n3. Risk assessment (what happens if repairs are delayed)\n4. Suggested maintenance schedule`}
+            />
           </>
         )
       )}

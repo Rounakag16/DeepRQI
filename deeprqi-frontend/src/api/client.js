@@ -124,9 +124,109 @@ export async function retryImage(id) {
   return data;
 }
 
-// Chatbot: rule-based assistant, see backend/src/lib/chatbot.js.
+// Chatbot: Ollama-powered AI assistant with rule-based fast path.
 export async function sendChatMessage(message) {
   const { data } = await client.post("/api/chat", { message });
+  return data;
+}
+
+// Streaming chat -- returns an EventSource-like interface. The callback
+// receives each token chunk as it arrives from the LLM.
+export function streamChatMessage(message, onChunk, onDone, onError) {
+  const token = localStorage.getItem("deeprqi_token");
+  const url = `${baseURL}/api/chat/stream?message=${encodeURIComponent(message)}`;
+
+  const eventSource = new EventSource(url, {
+    // EventSource doesn't support headers natively, so we use fetch-based SSE
+  });
+
+  // EventSource can't set auth headers, so we use fetch instead
+  const controller = new AbortController();
+
+  fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: controller.signal,
+  })
+    .then((response) => {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      function read() {
+        reader
+          .read()
+          .then(({ done, value }) => {
+            if (done) {
+              onDone();
+              return;
+            }
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop(); // keep incomplete line
+
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                const data = line.slice(6).trim();
+                if (data === "[DONE]") {
+                  onDone();
+                  return;
+                }
+                try {
+                  const parsed = JSON.parse(data);
+                  if (parsed.error) {
+                    onError(parsed.error);
+                    return;
+                  }
+                  onChunk(parsed.chunk, parsed.done);
+                } catch {
+                  /* skip malformed lines */
+                }
+              }
+            }
+            read();
+          })
+          .catch((err) => {
+            if (err.name !== "AbortError") onError(err.message);
+          });
+      }
+
+      read();
+    })
+    .catch((err) => {
+      if (err.name !== "AbortError") onError(err.message);
+    });
+
+  return { abort: () => controller.abort() };
+}
+
+// AI status -- tells the frontend whether Ollama is available and what
+// features are enabled.
+export async function getChatStatus() {
+  const { data } = await client.get("/api/chat/status");
+  return data;
+}
+
+// Clear conversation history on the backend
+export async function clearChatHistory() {
+  const { data } = await client.delete("/api/chat/history");
+  return data;
+}
+
+// Dedicated AI road analysis
+export async function analyzeRoad(roadName) {
+  const { data } = await client.post("/api/chat/analyze-road", { roadName });
+  return data;
+}
+
+// Dedicated repair recommendations
+export async function getRepairAdvice(roadName) {
+  const { data } = await client.post("/api/chat/repair-advice", { roadName });
+  return data;
+}
+
+// Generic AI summarization
+export async function aiSummarize(prompt) {
+  const { data } = await client.post("/api/chat/summarize", { prompt });
   return data;
 }
 

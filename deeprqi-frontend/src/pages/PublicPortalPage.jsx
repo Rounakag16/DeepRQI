@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
-import { getComplaints, submitComplaint, upvoteComplaint } from "../api/client";
+import { getComplaints, submitComplaint, upvoteComplaint, patchComplaintStatus } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 
 // Colored markers based on status
 function complaintIcon(status) {
@@ -24,6 +25,7 @@ const DEFAULT_CENTER = [20.5937, 78.9629];
 const DEFAULT_ZOOM = 5;
 
 export default function PublicPortalPage() {
+  const { user } = useAuth();
   const [complaints, setComplaints] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -38,6 +40,7 @@ export default function PublicPortalPage() {
   const canvasRef = useRef(null);
   const [capturedBlob, setCapturedBlob] = useState(null);
   const [capturedUrl, setCapturedUrl] = useState(null);
+  const [reportFile, setReportFile] = useState(null);
 
   useEffect(() => {
     loadComplaints();
@@ -55,11 +58,24 @@ export default function PublicPortalPage() {
   }
 
   const handleUpvote = async (id) => {
+    if (!user) {
+      alert("You must be logged in to upvote reports.");
+      return;
+    }
     try {
       await upvoteComplaint(id);
       loadComplaints(); // reload to get new count
     } catch (err) {
-      console.error("Upvote failed", err);
+      alert(err.response?.data?.error || "Upvote failed");
+    }
+  };
+
+  const handleStatusChange = async (id, newStatus) => {
+    try {
+      await patchComplaintStatus(id, newStatus);
+      loadComplaints();
+    } catch (err) {
+      alert("Failed to update status");
     }
   };
 
@@ -68,6 +84,7 @@ export default function PublicPortalPage() {
     setGps(null);
     setCapturedBlob(null);
     setCapturedUrl(null);
+    setReportFile(null);
     
     // 1. Get GPS
     navigator.geolocation.getCurrentPosition(
@@ -119,7 +136,7 @@ export default function PublicPortalPage() {
     
     setSubmitting(true);
     try {
-      await submitComplaint(desc, gps.lat, gps.lng, capturedBlob);
+      await submitComplaint(desc, gps.lat, gps.lng, reportFile || capturedBlob);
       alert("Issue reported successfully!");
       cancelReport();
       loadComplaints();
@@ -160,6 +177,16 @@ export default function PublicPortalPage() {
               )}
               {capturedUrl && <img src={capturedUrl} alt="Captured" style={{ width: "100%", maxHeight: "300px", objectFit: "cover" }} />}
               <canvas ref={canvasRef} style={{ display: "none" }} />
+            </div>
+
+            <div className="field">
+              <label>Upload Inspection Report PDF (Optional)</label>
+              <input 
+                type="file" 
+                accept="application/pdf" 
+                onChange={e => setReportFile(e.target.files[0])}
+                style={{ width: "100%", padding: "10px", background: "var(--bg-inset)", border: "1px solid var(--line)", color: "var(--text)", borderRadius: "3px" }}
+              />
             </div>
 
             <div className="field">
@@ -229,12 +256,26 @@ export default function PublicPortalPage() {
               <p style={{ fontSize: "14px", margin: "5px 0" }}>{c.description}</p>
               {c.road && <div style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "8px" }}>📍 Near {c.road.roadName}</div>}
               
-              <button 
-                onClick={() => handleUpvote(c.id)}
-                style={{ background: "var(--bg-inset)", border: "1px solid var(--line)", padding: "4px 8px", borderRadius: "3px", color: "var(--text)", cursor: "pointer", fontSize: "12px", display: "flex", alignItems: "center", gap: "5px" }}
-              >
-                👍 {c.voterCount} {c.voterCount === 1 ? "Upvote" : "Upvotes"}
-              </button>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <button 
+                  onClick={() => handleUpvote(c.id)}
+                  style={{ background: "var(--bg-inset)", border: "1px solid var(--line)", padding: "4px 8px", borderRadius: "3px", color: "var(--text)", cursor: "pointer", fontSize: "12px", display: "flex", alignItems: "center", gap: "5px" }}
+                >
+                  👍 {c.voterCount} {c.voterCount === 1 ? "Upvote" : "Upvotes"}
+                </button>
+                
+                {user?.role === "ADMIN" && (
+                  <select 
+                    value={c.status} 
+                    onChange={(e) => handleStatusChange(c.id, e.target.value)}
+                    style={{ padding: "4px 8px", fontSize: "12px", borderRadius: "3px", border: "1px solid var(--line)", background: "var(--bg-inset)", color: "var(--text)" }}
+                  >
+                    <option value="OPEN">Mark OPEN</option>
+                    <option value="IN_PROGRESS">Mark IN PROGRESS</option>
+                    <option value="RESOLVED">Mark RESOLVED</option>
+                  </select>
+                )}
+              </div>
             </div>
           ))}
         </div>

@@ -46,13 +46,30 @@ router.get("/", async (req, res) => {
   res.json(complaints);
 });
 
-// POST /api/complaints/:id/upvote -- Public unauthenticated
-router.post("/:id/upvote", async (req, res) => {
-  const complaint = await prisma.complaint.update({
-    where: { id: req.params.id },
-    data: { voterCount: { increment: 1 } },
-  });
-  res.json(complaint);
+// POST /api/complaints/:id/upvote -- Authenticated (1 vote per account)
+router.post("/:id/upvote", requireAuth, async (req, res) => {
+  try {
+    // Try to create the upvote record
+    await prisma.complaintUpvote.create({
+      data: {
+        complaintId: req.params.id,
+        userId: req.user.id
+      }
+    });
+    
+    // If successful (no unique constraint violation), increment the count
+    const complaint = await prisma.complaint.update({
+      where: { id: req.params.id },
+      data: { voterCount: { increment: 1 } },
+    });
+    res.json(complaint);
+  } catch (err) {
+    if (err.code === 'P2002') {
+      // Unique constraint failed = already upvoted
+      return res.status(400).json({ error: "You have already upvoted this report." });
+    }
+    return res.status(500).json({ error: "Could not process upvote." });
+  }
 });
 
 // PATCH /api/complaints/:id/status -- ADMIN only

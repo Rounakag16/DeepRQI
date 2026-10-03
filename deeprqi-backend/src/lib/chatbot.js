@@ -1,13 +1,15 @@
-// Rule-based (no external API calls -- free to run) assistant covering
-// how-to help, dashboard-wide stats, and per-road explanations. Intent is
-// matched by keyword/regex, checked in order, first match wins. Data
-// answers are computed live off the same tables the rest of the app reads
-// from, so answers can't drift from what's actually in the database.
+// Enhanced chatbot with Ollama "gpt oss 20b" -- combines the existing
+// rule-based logic (free, instant) with LLM-powered features (streaming
+// conversation, AI summaries, repair recommendations, etc.). The rule-
+// based layer fires first as a fast path; anything it can't handle falls
+// through to the LLM with full database context injected into the prompt.
 
 const prisma = require("./prisma");
 const { predictDegradation } = require("./degradation");
 const { generateExplanation } = require("./xaiSummary");
-const axios = require("axios");
+const ollama = require("./ollama");
+
+// ── Static help (instant, no LLM cost) ─────────────────────────────────
 
 const HELP_TOPICS = [
   {
@@ -59,6 +61,8 @@ const HELP_TOPICS = [
   },
 ];
 
+// ── Database queries ────────────────────────────────────────────────────
+
 async function dashboardWideSummary() {
   const totalRoads = await prisma.road.count();
   const latest = await prisma.$queryRaw`
@@ -80,36 +84,102 @@ async function namesForRoadIds(ids) {
 async function findRoadByName(nameFragment) {
   return prisma.road.findFirst({
     where: { roadName: { contains: nameFragment, mode: "insensitive" } },
-    include: { images: { orderBy: { uploadedAt: "desc" }, include: { scores: true } } },
+    include: {
+      images: {
+        orderBy: { uploadedAt: "desc" },
+        include: { scores: true, detections: true },
+      },
+    },
   });
 }
 
+async function getRecentComplaints(limit = 10) {
+  return prisma.complaint.findMany({
+    orderBy: { createdAt: "desc" },
+    take: limit,
+    include: { road: { select: { roadName: true } } },
+  });
+}
+
+async function getNetworkContext() {
+  const stats = await dashboardWideSummary();
+  const recentImages = await prisma.image.findMany({
+    orderBy: { uploadedAt: "desc" },
+    take: 5,
+    include: {
+      road: { select: { roadName: true } },
+      scores: true,
+    },
+  });
+
+  let context = `Network: ${stats.totalRoads} roads, ${stats.scoredRoads} scored, avg RQI ${
+    stats.avgScore ? Math.round(stats.avgScore) : "N/A"
+  }, ${stats.criticalCount} critical.`;
+
+  if (recentImages.length > 0) {
+    context += "\nRecent inspections: " +
+      recentImages
+        .map(
+          (img) =>
+            `${img.road?.roadName || "Unknown"} - RQI ${
+              img.scores[0] ? Math.round(img.scores[0].score) : "pending"
+            }`
+        )
+        .join(", ");
+  }
+
+  return context;
+}
+
+// ── Rule-based handlers (fast path) ─────────────────────────────────────
+
 async function handleDashboardQuestion(text, user) {
-  // Gated the same as the real dashboard (Milestone 10: ADMIN-only), so
-  // the chatbot can't leak aggregate data an INSPECTOR couldn't otherwise see.
   if (user.role !== "ADMIN") {
     return "Dashboard-wide stats are only visible to Admins. I can tell you about a specific road though -- try asking me about it by name.";
   }
   const { totalRoads, scoredRoads, avgScore, criticalCount, latest } = await dashboardWideSummary();
 
   if (/worst/i.test(text)) {
-    const worst = [...latest].sort((a, b) => a.score - b.score).slice(0, 3);
+    const worst = [...latest].sort((a, b) => a.score - b.score).slice(0, 5);
     if (worst.length === 0) return "No roads have been scored yet.";
     const nameById = await namesForRoadIds(worst.map((w) => w.roadId));
-    const lines = worst.map((w) => `${nameById[w.roadId] || w.roadId}: ${Math.round(w.score)} (${w.category})`);
-    return `Lowest-scoring roads: ${lines.join("; ")}.`;
+
+    // Enrich with AI insight
+    const worstData = worst.map((w) => `${nameById[w.roadId] || w.roadId}: ${Math.round(w.score)} (${w.category})`);
+    const aiInsight = await ollama.generate(
+      ollama.buildDashboardInsightPrompt({
+        totalRoads, scoredRoads, avgScore: avgScore ? Math.round(avgScore) : "N/A",
+        criticalCount, pctPoorCritical: scoredRoads ? Math.round((criticalCount / scoredRoads) * 100) : 0,
+        worstRoads: worstData.join("; "),
+      }),
+      { maxTokens: 512 }
+    );
+
+    return aiInsight || `Lowest-scoring roads: ${worstData.join("; ")}.`;
   }
+
   if (/best/i.test(text)) {
-    const best = [...latest].sort((a, b) => b.score - a.score).slice(0, 3);
+    const best = [...latest].sort((a, b) => b.score - a.score).slice(0, 5);
     if (best.length === 0) return "No roads have been scored yet.";
     const nameById = await namesForRoadIds(best.map((w) => w.roadId));
     const lines = best.map((w) => `${nameById[w.roadId] || w.roadId}: ${Math.round(w.score)} (${w.category})`);
     return `Highest-scoring roads: ${lines.join("; ")}.`;
   }
+
+  // Generate AI-powered executive summary
+  const statsData = {
+    totalRoads, scoredRoads,
+    avgScore: avgScore ? Math.round(avgScore * 10) / 10 : "N/A",
+    criticalCount,
+    pctPoorCritical: scoredRoads ? Math.round((criticalCount / scoredRoads) * 100) : 0,
+  };
+  const aiSummary = await ollama.generate(ollama.buildDashboardInsightPrompt(statsData), { maxTokens: 512 });
+
   return (
+    aiSummary ||
     `There are ${totalRoads} roads tracked (${scoredRoads} with at least one inspection). ` +
-    (avgScore != null ? `Average RQI is ${Math.round(avgScore * 10) / 10}. ` : "") +
-    `${criticalCount} road${criticalCount === 1 ? " is" : "s are"} currently in Critical condition.`
+      (avgScore != null ? `Average RQI is ${Math.round(avgScore * 10) / 10}. ` : "") +
+      `${criticalCount} road${criticalCount === 1 ? " is" : "s are"} currently in Critical condition.`
   );
 }
 
@@ -126,6 +196,17 @@ async function handleRoadQuestion(fragment) {
   const explanation = generateExplanation(latestScore);
   const forecast = predictDegradation(scored.map((s) => ({ score: s.score, generatedAt: s.generatedAt })));
 
+  // Gather damage info for AI analysis
+  const allDetections = road.images.flatMap((img) => img.detections || []);
+  const damageTypes = {};
+  const severities = {};
+  for (const det of allDetections) {
+    const type = det.damageType || "unknown";
+    const sev = det.severity || "unknown";
+    damageTypes[type] = (damageTypes[type] || 0) + 1;
+    severities[sev] = (severities[sev] || 0) + 1;
+  }
+
   let forecastNote = "";
   if (forecast.alreadyCritical) {
     forecastNote = " This road is already in Critical condition -- repair is overdue.";
@@ -137,56 +218,140 @@ async function handleRoadQuestion(fragment) {
 
   const baseFact = `${road.roadName} is currently ${latestScore.category} (${Math.round(latestScore.score)}/100). ${explanation}${forecastNote}`;
 
-  const aiExplanation = await askOllama(
-    `You are DeepRQI, an AI road inspector. You have the following hard data about a road: "${baseFact}". Rewrite this into a concise, professional, and easily understandable summary for a city administrator.`
+  // AI-enhanced analysis
+  const aiAnalysis = await ollama.generate(
+    ollama.buildRoadAnalysisPrompt({
+      roadName: road.roadName,
+      city: road.city,
+      district: road.district,
+      state: road.state,
+      score: Math.round(latestScore.score),
+      category: latestScore.category,
+      inspectionCount: scored.length,
+      damages: Object.entries(damageTypes).map(([k, v]) => `${v}x ${k}`).join(", ") || "None",
+      trend: forecast.predictable
+        ? `${forecast.trendPointsPerMonth} pts/month`
+        : forecast.reason,
+    }),
+    { maxTokens: 512 }
   );
 
-  return aiExplanation || baseFact;
+  return aiAnalysis || baseFact;
 }
 
-async function askOllama(prompt) {
-  try {
-    const res = await axios.post("http://localhost:11434/api/generate", {
-      model: "gpt oss 20b",
-      prompt: prompt,
-      stream: false
-    });
-    return res.data.response;
-  } catch (err) {
-    console.error("Ollama error:", err.message);
-    return null;
+// ── Complaint analysis ──────────────────────────────────────────────────
+
+async function handleComplaintAnalysis(user) {
+  if (user.role !== "ADMIN") {
+    return "Complaint analysis is available to Admins only.";
   }
+  const complaints = await getRecentComplaints(20);
+  if (complaints.length === 0) {
+    return "No citizen complaints have been submitted yet.";
+  }
+
+  const aiAnalysis = await ollama.generate(
+    ollama.buildComplaintAnalysisPrompt(complaints),
+    { maxTokens: 512 }
+  );
+
+  return (
+    aiAnalysis ||
+    `There are ${complaints.length} recent complaints. ${complaints.filter((c) => c.status === "OPEN").length} are still open.`
+  );
 }
 
-async function handleMessage(message, user) {
+// ── Repair recommendations ──────────────────────────────────────────────
+
+async function handleRepairAdvice(fragment) {
+  const road = await findRoadByName(fragment);
+  if (!road) {
+    return `I couldn't find a road matching "${fragment}". Try a different name.`;
+  }
+  const scored = road.images.flatMap((img) => img.scores);
+  if (scored.length === 0) {
+    return `${road.roadName} hasn't been inspected yet -- no repair data available.`;
+  }
+  const latestScore = [...scored].sort((a, b) => new Date(b.generatedAt) - new Date(a.generatedAt))[0];
+  const allDetections = road.images.flatMap((img) => img.detections || []);
+  const damageTypes = {};
+  const severities = {};
+  for (const det of allDetections) {
+    damageTypes[det.damageType || "unknown"] = (damageTypes[det.damageType || "unknown"] || 0) + 1;
+    severities[det.severity || "unknown"] = (severities[det.severity || "unknown"] || 0) + 1;
+  }
+
+  const forecast = predictDegradation(scored.map((s) => ({ score: s.score, generatedAt: s.generatedAt })));
+
+  const aiRec = await ollama.generate(
+    ollama.buildRepairRecommendationPrompt({
+      roadName: road.roadName,
+      score: Math.round(latestScore.score),
+      category: latestScore.category,
+      damages: Object.entries(damageTypes).map(([k, v]) => `${v}x ${k}`).join(", ") || "None",
+      severities: Object.entries(severities).map(([k, v]) => `${k}: ${v}`).join(", "),
+      criticalDate: forecast.projectedCriticalDate
+        ? new Date(forecast.projectedCriticalDate).toLocaleDateString()
+        : null,
+    }),
+    { maxTokens: 768 }
+  );
+
+  return (
+    aiRec ||
+    `${road.roadName} (${latestScore.category}, ${Math.round(latestScore.score)}/100): ` +
+      `${Object.entries(damageTypes).map(([k, v]) => `${v}x ${k}`).join(", ") || "no damage detected"}.`
+  );
+}
+
+// ── Main message handler ────────────────────────────────────────────────
+
+async function handleMessage(message, user, conversationHistory = []) {
   const text = (message || "").trim();
   if (!text) return "Ask me how to upload a photo, about a specific road, or about dashboard stats.";
 
   if (/^(hi|hello|hey)\b/i.test(text)) {
-    return "Hi! I can help with how to use DeepRQI, dashboard stats, or explain a specific road's condition -- what do you need?";
+    return "Hi! I can help with how to use DeepRQI, dashboard stats, road analysis, repair recommendations, or complaint insights -- what do you need?";
   }
 
+  // Dashboard stats
   if (
-    /\b(how many roads|total roads|average rqi|avg rqi|critical roads?|worst roads?|best roads?|dashboard)\b/i.test(
+    /\b(how many roads|total roads|average rqi|avg rqi|critical roads?|worst roads?|best roads?|dashboard|network (status|health|summary)|executive summary)\b/i.test(
       text
     )
   ) {
     return handleDashboardQuestion(text, user);
   }
 
-  const roadMatch = text.match(/(?:about|explain|how is|status of)\s+(.+?)(?:\?|$)/i);
+  // Complaint analysis
+  if (/\b(complaints?|citizen reports?|public reports?|complaint analysis|complaint summary)\b/i.test(text)) {
+    return handleComplaintAnalysis(user);
+  }
+
+  // Repair advice (explicit)
+  const repairMatch = text.match(/(?:repair|fix|maintain|recommend.*for|how to fix)\s+(.+?)(?:\?|$)/i);
+  if (repairMatch) {
+    return handleRepairAdvice(repairMatch[1].trim());
+  }
+
+  // Road-specific question
+  const roadMatch = text.match(/(?:about|explain|how is|status of|condition of|analyze)\s+(.+?)(?:\?|$)/i);
   if (roadMatch) {
     return handleRoadQuestion(roadMatch[1].trim());
   }
 
+  // Static help topics (instant)
   for (const topic of HELP_TOPICS) {
     if (topic.test.test(text)) return topic.reply;
   }
 
-  // Fallback to Ollama AI
-  const aiResponse = await askOllama(
-    `You are DeepRQI, an AI road inspection assistant. The user asked: "${text}". Provide a helpful and concise response.`
-  );
+  // ── LLM fallback with conversation context ───────────────────────────
+  // If nothing matched above, use Ollama with conversation history +
+  // live database context for an intelligent response.
+  const contextData = await getNetworkContext();
+  const messages = ollama.buildConversationPrompt(conversationHistory, text, contextData);
+  const aiResponse = await ollama.chat(messages, { maxTokens: 512 });
+
   if (aiResponse) {
     return aiResponse;
   }
@@ -197,4 +362,39 @@ async function handleMessage(message, user) {
   );
 }
 
-module.exports = { handleMessage };
+// ── Streaming handler for SSE endpoint ──────────────────────────────────
+
+async function handleMessageStream(message, user, conversationHistory, onChunk) {
+  const text = (message || "").trim();
+  if (!text) {
+    onChunk("Ask me how to upload a photo, about a specific road, or about dashboard stats.", true);
+    return;
+  }
+
+  // For static/rule-based responses, send the whole thing in one chunk
+  if (/^(hi|hello|hey)\b/i.test(text)) {
+    const reply = "Hi! I can help with how to use DeepRQI, dashboard stats, road analysis, repair recommendations, or complaint insights -- what do you need?";
+    onChunk(reply, true);
+    return;
+  }
+
+  for (const topic of HELP_TOPICS) {
+    if (topic.test.test(text)) {
+      onChunk(topic.reply, true);
+      return;
+    }
+  }
+
+  // For LLM-powered responses, stream tokens
+  const contextData = await getNetworkContext();
+  const prompt = `${ollama.SYSTEM_PROMPT}\n\nCurrent database context:\n${contextData}\n\nConversation so far:\n${conversationHistory.map((m) => `${m.role}: ${m.text}`).join("\n")}\n\nUser: ${text}\n\nAssistant:`;
+
+  const result = await ollama.generateStream(prompt, onChunk);
+  if (!result) {
+    // Fallback -- try non-streaming
+    const reply = await handleMessage(message, user, conversationHistory);
+    onChunk(reply, true);
+  }
+}
+
+module.exports = { handleMessage, handleMessageStream };

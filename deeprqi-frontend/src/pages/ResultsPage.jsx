@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams, Link } from "react-router-dom";
-import { getImage, patchDetectionStatus } from "../api/client";
+import { getImage, patchDetectionStatus, getRoadReportBlob } from "../api/client";
 import RqiGauge from "../components/RqiGauge";
 import BoundingBoxOverlay from "../components/BoundingBoxOverlay";
 import DetectionList from "../components/DetectionList";
 import OcclusionExplainer from "../components/OcclusionExplainer";
 import InfoTooltip from "../components/InfoTooltip";
+import AISummaryPanel from "../components/AISummaryPanel";
 
 export default function ResultsPage() {
   const { imageId } = useParams();
@@ -22,6 +23,30 @@ export default function ResultsPage() {
   const [result, setResult] = useState(stateResult);
   const [loading, setLoading] = useState(!stateResult);
   const [error, setError] = useState("");
+  const [reportDownloading, setReportDownloading] = useState(false);
+  const [reportError, setReportError] = useState("");
+
+  async function handleDownloadReport() {
+    if (!result?.road) return;
+    setReportError("");
+    setReportDownloading(true);
+    try {
+      const blob = await getRoadReportBlob(result.road.id);
+      const url = window.URL.createObjectURL(blob);
+      const safeName = result.road.roadName.replace(/[^a-z0-9]/gi, "_");
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${safeName}_report.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setReportError("Could not generate the report. Try again.");
+    } finally {
+      setReportDownloading(false);
+    }
+  }
 
   useEffect(() => {
     if (stateResult) return;
@@ -98,17 +123,32 @@ export default function ResultsPage() {
             )}
           </p>
         </div>
-        <div style={{ display: "flex", gap: "10px" }}>
-          {/* This is the only route to the road's history/report from the
-              upload flow -- without it there was no way to reach the
-              "Download report" button on RoadDetailPage right after an
-              inspection (Dashboard is ADMIN-only as of Milestone 10). */}
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          {reportError && (
+            <span style={{ color: "var(--critical, #c0392b)", fontSize: "12px" }}>{reportError}</span>
+          )}
+          <button
+            onClick={handleDownloadReport}
+            disabled={reportDownloading}
+            className="btn-primary"
+            style={{ padding: "8px 16px", borderRadius: "3px", fontSize: "13px" }}
+          >
+            {reportDownloading ? "Generating…" : "Download Report"}
+          </button>
+          
           <Link
             to={`/roads/${road.id}`}
-            className="btn-primary"
-            style={{ padding: "8px 16px", borderRadius: "3px", fontSize: "13px", textDecoration: "none" }}
+            style={{
+              background: "none",
+              border: "1px solid var(--accent)",
+              color: "var(--accent)",
+              padding: "8px 16px",
+              borderRadius: "3px",
+              fontSize: "13px",
+              textDecoration: "none"
+            }}
           >
-            View history & report
+            History
           </Link>
           <Link
             to={`/compare/${image.id}`}
@@ -214,6 +254,13 @@ export default function ResultsPage() {
       )}
 
       <OcclusionExplainer imageId={image.id} detections={image.detections} />
+
+      {/* AI Inspection Analysis */}
+      <AISummaryPanel
+        title="AI Inspection Analysis"
+        compact
+        prompt={`Analyze this single road inspection result for a road inspector:\n\nRoad: ${road.roadName}\nLocation: ${[road.city, road.district, road.state].filter(Boolean).join(", ") || "Unknown"}\nRQI Score: ${Math.round(rqi.score)}/100 (${rqi.category})\nDetections found: ${image.detections?.length || 0}\nDamage types: ${image.detections?.map(d => d.damageType).filter(Boolean).join(", ") || "None"}\nSeverities: ${image.detections?.map(d => d.severity).filter(Boolean).join(", ") || "N/A"}\nRQI Breakdown: ${rqi.breakdown ? rqi.breakdown.map(b => b.damage_type + " (" + b.severity + ", penalty: " + Math.round(b.penalty) + ")").join(", ") : "N/A"}\n\nProvide: 1) Brief assessment of this inspection 2) What the detected damage means practically 3) Urgency level 4) Next steps for the inspector`}
+      />
     </div>
   );
 }

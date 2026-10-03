@@ -45,15 +45,16 @@ model User {
   role         Role     @default(INSPECTOR)
   createdAt    DateTime @default(now()) @map("created_at")
 
-  uploadedImages RoadImage[] @relation("UploadedBy")
+  uploadedImages  RoadImage[]   @relation("UploadedBy")
   repairsRecorded RepairEvent[] @relation("RecordedBy")
+  complaintUpvotes ComplaintUpvote[]
 
   @@map("users")
 }
 
 model Road {
-  id       String  @id @default(uuid()) @map("road_id")
-  roadName String  @map("road_name")
+  id       String                                 @id @default(uuid()) @map("road_id")
+  roadName String                                 @map("road_name")
   city     String?
   district String?
   state    String?
@@ -64,13 +65,13 @@ model Road {
   location Unsupported("geography(Point, 4326)")?
 
   geocodedAt DateTime? @map("geocoded_at")
-  postcode String?
+  postcode   String?
 
-  images       RoadImage[]
-  scores       RqiScore[]
-  repairEvents RepairEvent[]
+  images         RoadImage[]
+  scores         RqiScore[]
+  repairEvents   RepairEvent[]
   surveySessions SurveySession[]
-  complaints   Complaint[]
+  complaints     Complaint[]
 
   @@map("roads")
 }
@@ -104,15 +105,15 @@ model RoadImage {
 }
 
 model Detection {
-  id         String @id @default(uuid()) @map("detection_id")
-  imageId    String @map("image_id")
-  damageType String @map("damage_type")
-  confidence Float
-  severity   String
-  bbox       Json
-  status     DetectionStatus @default(DETECTED) @map("status")
-  verifiedById String?       @map("verified_by")
-  verifiedAt DateTime?       @map("verified_at")
+  id           String          @id @default(uuid()) @map("detection_id")
+  imageId      String          @map("image_id")
+  damageType   String          @map("damage_type")
+  confidence   Float
+  severity     String
+  bbox         Json
+  status       DetectionStatus @default(DETECTED) @map("status")
+  verifiedById String?         @map("verified_by")
+  verifiedAt   DateTime?       @map("verified_at")
 
   image RoadImage @relation(fields: [imageId], references: [id])
 
@@ -120,20 +121,20 @@ model Detection {
 }
 
 model RqiScore {
-  id           String   @id @default(uuid()) @map("rqi_id")
-  roadId       String   @map("road_id")
-  imageId      String?  @map("image_id")
-  sessionId    String?  @map("session_id")
-  score        Float
-  category     String
-  totalPenalty Float    @map("total_penalty")
-  breakdown    Json
-  originalScore Float?  @map("original_score")
-  recomputedAt DateTime? @map("recomputed_at")
-  generatedAt  DateTime @default(now()) @map("generated_at")
+  id            String    @id @default(uuid()) @map("rqi_id")
+  roadId        String    @map("road_id")
+  imageId       String?   @map("image_id")
+  sessionId     String?   @map("session_id")
+  score         Float
+  category      String
+  totalPenalty  Float     @map("total_penalty")
+  breakdown     Json
+  originalScore Float?    @map("original_score")
+  recomputedAt  DateTime? @map("recomputed_at")
+  generatedAt   DateTime  @default(now()) @map("generated_at")
 
-  road    Road          @relation(fields: [roadId], references: [id])
-  image   RoadImage?    @relation(fields: [imageId], references: [id])
+  road    Road           @relation(fields: [roadId], references: [id])
+  image   RoadImage?     @relation(fields: [imageId], references: [id])
   session SurveySession? @relation(fields: [sessionId], references: [id])
 
   @@map("rqi_scores")
@@ -146,66 +147,80 @@ model RepairEvent {
   recordedById String   @map("recorded_by")
   notes        String?
 
-  road         Road     @relation(fields: [roadId], references: [id])
-  recordedBy   User     @relation("RecordedBy", fields: [recordedById], references: [id])
+  road       Road @relation(fields: [roadId], references: [id])
+  recordedBy User @relation("RecordedBy", fields: [recordedById], references: [id])
 
   @@map("repair_events")
 }
 
 model SurveySession {
-  id              String   @id @default(uuid()) @map("session_id")
-  roadId          String   @map("road_id")
-  inspectorId     String   @map("inspector_id")
-  startedAt       DateTime @default(now()) @map("started_at")
+  id              String    @id @default(uuid()) @map("session_id")
+  roadId          String    @map("road_id")
+  inspectorId     String    @map("inspector_id")
+  startedAt       DateTime  @default(now()) @map("started_at")
   endedAt         DateTime? @map("ended_at")
-  totalDistanceKm Float?   @map("total_distance_km")
+  totalDistanceKm Float?    @map("total_distance_km")
 
-  road      Road       @relation(fields: [roadId], references: [id])
-  frames    SurveyFrame[]
-  scores    RqiScore[]
+  road   Road          @relation(fields: [roadId], references: [id])
+  frames SurveyFrame[]
+  scores RqiScore[]
 
   @@map("survey_sessions")
 }
 
 model SurveyFrame {
-  id         String   @id @default(uuid()) @map("frame_id")
-  sessionId  String   @map("session_id")
-  lat        Float
-  lng        Float
-  speed      Float?
-  imagePath  String?  @map("image_path")
-  timestamp  DateTime @default(now())
+  id        String   @id @default(uuid()) @map("frame_id")
+  sessionId String   @map("session_id")
+  lat       Float
+  lng       Float
+  speed     Float?
+  imagePath String?  @map("image_path")
+  timestamp DateTime @default(now())
 
-  session    SurveySession @relation(fields: [sessionId], references: [id])
+  session    SurveySession     @relation(fields: [sessionId], references: [id])
   detections SurveyDetection[]
 
   @@map("survey_frames")
 }
 
 model SurveyDetection {
-  id         String   @id @default(uuid()) @map("detection_id")
-  frameId    String   @map("frame_id")
-  damageType String   @map("damage_type")
+  id         String @id @default(uuid()) @map("detection_id")
+  frameId    String @map("frame_id")
+  damageType String @map("damage_type")
   severity   String
   confidence Float
 
-  frame      SurveyFrame @relation(fields: [frameId], references: [id])
+  frame SurveyFrame @relation(fields: [frameId], references: [id])
 
   @@map("survey_detections")
 }
 
 model Complaint {
-  id          String   @id @default(uuid()) @map("complaint_id")
-  roadId      String?  @map("road_id")
+  id          String          @id @default(uuid()) @map("complaint_id")
+  roadId      String?         @map("road_id")
   lat         Float
   lng         Float
   description String
-  imagePath   String?  @map("image_path")
+  imagePath   String?         @map("image_path")
   status      ComplaintStatus @default(OPEN)
-  voterCount  Int      @default(1) @map("voter_count")
-  createdAt   DateTime @default(now()) @map("created_at")
+  voterCount  Int             @default(1) @map("voter_count")
+  createdAt   DateTime        @default(now()) @map("created_at")
 
-  road        Road?    @relation(fields: [roadId], references: [id])
+  road Road? @relation(fields: [roadId], references: [id])
+  upvotes ComplaintUpvote[]
 
   @@map("complaints")
+}
+
+model ComplaintUpvote {
+  id          String   @id @default(uuid()) @map("upvote_id")
+  complaintId String   @map("complaint_id")
+  userId      String   @map("user_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  complaint   Complaint @relation(fields: [complaintId], references: [id])
+  user        User      @relation(fields: [userId], references: [id])
+
+  @@unique([complaintId, userId])
+  @@map("complaint_upvotes")
 }

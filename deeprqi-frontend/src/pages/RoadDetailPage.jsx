@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import RqiGauge from "../components/RqiGauge";
 import RqiTrendChart from "../components/RqiTrendChart";
 import DegradationForecastPanel from "../components/DegradationForecastPanel";
+import AISummaryPanel from "../components/AISummaryPanel";
 import { bandForScore } from "../utils/rqiBands";
 
 export default function RoadDetailPage() {
@@ -177,6 +178,14 @@ export default function RoadDetailPage() {
       </div>
 
       <DegradationForecastPanel forecast={road.degradationForecast} />
+
+      {/* AI-powered road analysis */}
+      {latest && (
+        <AISummaryPanel
+          title="AI Road Analysis"
+          prompt={`Analyze this road for a city administrator:\n\nRoad: ${road.roadName}\nLocation: ${[road.city, road.district, road.state].filter(Boolean).join(", ") || "Unknown"}\nCurrent RQI: ${Math.round(latest.score)}/100 (${latest.category})\nTotal Inspections: ${inspections.length}\nDetections in latest: ${inspections[0]?.detectionCount || 0}\nDegradation trend: ${road.degradationForecast?.trendPointsPerMonth ? road.degradationForecast.trendPointsPerMonth + " pts/month" : road.degradationForecast?.reason || "N/A"}\n${road.degradationForecast?.projectedCriticalDate ? "Projected critical date: " + new Date(road.degradationForecast.projectedCriticalDate).toLocaleDateString() : ""}\n\nProvide a concise professional assessment including condition summary, key concerns, recommended repair actions, and priority level.`}
+        />
+      )}
 
       <div className="panel">
         <h3 style={{ fontSize: "13px", color: "var(--text-muted)", marginBottom: "14px" }}>
