@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { aiSummarize } from "../api/client";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 /**
  * AISummaryPanel -- a reusable "Ask AI" panel that can be dropped onto
@@ -142,16 +144,44 @@ export default function AISummaryPanel({ prompt, title = "AI Insight", compact =
 
       {summary && !loading && (
         <div
+          className="markdown-content"
           style={{
             fontSize: "13px",
             lineHeight: "1.6",
             color: "var(--text-primary)",
-            whiteSpace: "pre-wrap",
             animation: "fadeIn 0.4s ease-out",
           }}
         >
-          {summary}
-          <style>{`@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }`}</style>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {summary}
+          </ReactMarkdown>
+          <style>{`
+            @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+            .markdown-content table {
+              width: 100%;
+              border-collapse: collapse;
+              margin: 10px 0;
+            }
+            .markdown-content th, .markdown-content td {
+              border: 1px solid rgba(255,255,255,0.1);
+              padding: 6px 12px;
+              text-align: left;
+            }
+            .markdown-content th {
+              background: rgba(255,255,255,0.05);
+            }
+            .markdown-content h1, .markdown-content h2, .markdown-content h3 {
+              margin-top: 16px;
+              margin-bottom: 8px;
+            }
+            .markdown-content p {
+              margin-bottom: 10px;
+            }
+            .markdown-content ul, .markdown-content ol {
+              margin-left: 20px;
+              margin-bottom: 10px;
+            }
+          `}</style>
         </div>
       )}
     </div>

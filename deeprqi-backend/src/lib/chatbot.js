@@ -39,7 +39,7 @@ const HELP_TOPICS = [
       "see the dashboard-wide stats and map. Your role is set at registration.",
   },
   {
-    test: /\b(rqi|road quality index|score mean|what.?s? (the|a) score)\b/i,
+    test: /^\s*(what is (the )?)?(rqi|road quality index)(\?| mean)?\s*$/i,
     reply:
       "RQI (Road Quality Index) starts at 100 and subtracts a penalty for each detected defect -- the penalty " +
       "depends on the damage type (pothole, crack types) and its severity, which is based on how much of the " +
@@ -101,9 +101,9 @@ async function getRecentComplaints(limit = 10) {
   });
 }
 
-async function getNetworkContext() {
+async function getNetworkContext(contextPath) {
   const stats = await dashboardWideSummary();
-  const recentImages = await prisma.image.findMany({
+  const recentImages = await prisma.roadImage.findMany({
     orderBy: { uploadedAt: "desc" },
     take: 5,
     include: {
@@ -126,6 +126,25 @@ async function getNetworkContext() {
             }`
         )
         .join(", ");
+  }
+
+  if (contextPath) {
+    try {
+      if (contextPath.startsWith("/roads/")) {
+        const roadId = contextPath.split("/")[2];
+        const road = await prisma.road.findUnique({ where: { id: roadId } });
+        if (road) context += `\n\nCRITICAL CONTEXT: The user is currently viewing the page for road "${road.roadName}". If they ask "this road", they mean ${road.roadName}.`;
+      } else if (contextPath.startsWith("/results/")) {
+        const imageId = contextPath.split("/")[2];
+        const img = await prisma.roadImage.findUnique({ where: { id: imageId }, include: { road: true, scores: true } });
+        if (img && img.road) {
+          const rqi = img.scores[0] ? Math.round(img.scores[0].score) : "pending";
+          context += `\n\nCRITICAL CONTEXT: The user is currently viewing a specific inspection photo for road "${img.road.roadName}". The RQI score for this specific inspection is ${rqi}. If they ask about "this inspection" or "this road", use this context.`;
+        }
+      }
+    } catch (e) {
+      console.error("Context fetch error:", e);
+    }
   }
 
   return context;
@@ -306,7 +325,7 @@ async function handleRepairAdvice(fragment) {
 
 // ── Main message handler ────────────────────────────────────────────────
 
-async function handleMessage(message, user, conversationHistory = []) {
+async function handleMessage(message, user, conversationHistory = [], contextPath = "") {
   const text = (message || "").trim();
   if (!text) return "Ask me how to upload a photo, about a specific road, or about dashboard stats.";
 
@@ -348,7 +367,7 @@ async function handleMessage(message, user, conversationHistory = []) {
   // ── LLM fallback with conversation context ───────────────────────────
   // If nothing matched above, use Ollama with conversation history +
   // live database context for an intelligent response.
-  const contextData = await getNetworkContext();
+  const contextData = await getNetworkContext(contextPath);
   const messages = ollama.buildConversationPrompt(conversationHistory, text, contextData);
   const aiResponse = await ollama.chat(messages, { maxTokens: 512 });
 
@@ -364,7 +383,7 @@ async function handleMessage(message, user, conversationHistory = []) {
 
 // ── Streaming handler for SSE endpoint ──────────────────────────────────
 
-async function handleMessageStream(message, user, conversationHistory, onChunk) {
+async function handleMessageStream(message, user, conversationHistory, contextPath, onChunk) {
   const text = (message || "").trim();
   if (!text) {
     onChunk("Ask me how to upload a photo, about a specific road, or about dashboard stats.", true);
@@ -386,13 +405,13 @@ async function handleMessageStream(message, user, conversationHistory, onChunk) 
   }
 
   // For LLM-powered responses, stream tokens
-  const contextData = await getNetworkContext();
+  const contextData = await getNetworkContext(contextPath);
   const prompt = `${ollama.SYSTEM_PROMPT}\n\nCurrent database context:\n${contextData}\n\nConversation so far:\n${conversationHistory.map((m) => `${m.role}: ${m.text}`).join("\n")}\n\nUser: ${text}\n\nAssistant:`;
 
   const result = await ollama.generateStream(prompt, onChunk);
   if (!result) {
     // Fallback -- try non-streaming
-    const reply = await handleMessage(message, user, conversationHistory);
+    const reply = await handleMessage(message, user, conversationHistory, contextPath);
     onChunk(reply, true);
   }
 }

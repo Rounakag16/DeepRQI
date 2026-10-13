@@ -29,13 +29,13 @@ function addToHistory(userId, role, text) {
 
 // ── POST /api/chat -- standard request/response ────────────────────────
 router.post("/", requireAuth, async (req, res) => {
-  const { message } = req.body;
+  const { message, contextPath } = req.body;
   if (!message || typeof message !== "string") {
     return res.status(400).json({ error: "message is required." });
   }
   try {
     const history = getHistory(req.user.id);
-    const reply = await handleMessage(message, req.user, history);
+    const reply = await handleMessage(message, req.user, history, contextPath);
 
     // Persist both sides of the conversation
     addToHistory(req.user.id, "user", message);
@@ -53,6 +53,7 @@ router.post("/", requireAuth, async (req, res) => {
 // render them incrementally (ChatGPT-style typing effect).
 router.get("/stream", requireAuth, async (req, res) => {
   const message = req.query.message;
+  const contextPath = req.query.contextPath;
   if (!message) {
     return res.status(400).json({ error: "message query param is required." });
   }
@@ -68,7 +69,7 @@ router.get("/stream", requireAuth, async (req, res) => {
   let fullReply = "";
 
   try {
-    await handleMessageStream(message, req.user, history, (chunk, done) => {
+    await handleMessageStream(message, req.user, history, contextPath, (chunk, done) => {
       fullReply += chunk;
       res.write(`data: ${JSON.stringify({ chunk, done })}\n\n`);
       if (done) {

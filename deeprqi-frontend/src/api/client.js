@@ -125,16 +125,16 @@ export async function retryImage(id) {
 }
 
 // Chatbot: Ollama-powered AI assistant with rule-based fast path.
-export async function sendChatMessage(message) {
-  const { data } = await client.post("/api/chat", { message });
+export async function sendChatMessage(message, contextPath) {
+  const { data } = await client.post("/api/chat", { message, contextPath });
   return data;
 }
 
 // Streaming chat -- returns an EventSource-like interface. The callback
 // receives each token chunk as it arrives from the LLM.
-export function streamChatMessage(message, onChunk, onDone, onError) {
+export function streamChatMessage(message, contextPath, onChunk, onDone, onError) {
   const token = localStorage.getItem("deeprqi_token");
-  const url = `${baseURL}/api/chat/stream?message=${encodeURIComponent(message)}`;
+  const url = `${baseURL}/api/chat/stream?message=${encodeURIComponent(message)}&contextPath=${encodeURIComponent(contextPath || "")}`;
 
   const eventSource = new EventSource(url, {
     // EventSource doesn't support headers natively, so we use fetch-based SSE

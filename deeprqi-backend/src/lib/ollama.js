@@ -6,7 +6,7 @@ const axios = require("axios");
 
 const OLLAMA_BASE = process.env.OLLAMA_URL || "http://localhost:11434";
 const MODEL = process.env.OLLAMA_MODEL || "gpt oss 20b";
-const TIMEOUT_MS = 60000; // generous -- local LLMs can be slow on first load
+const TIMEOUT_MS = 300000; // very generous -- local LLMs can be slow on first load
 
 // ── Core generation ─────────────────────────────────────────────────────
 

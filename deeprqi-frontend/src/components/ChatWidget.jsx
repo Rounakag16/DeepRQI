@@ -4,6 +4,7 @@ import {
   getChatStatus,
   clearChatHistory,
 } from "../api/client";
+import { useLocation } from "react-router-dom";
 
 // ── Suggested prompts for different contexts ────────────────────────────
 const QUICK_PROMPTS = [
@@ -189,6 +190,7 @@ export default function ChatWidget() {
   const [unread, setUnread] = useState(0);
   const listRef = useRef(null);
   const inputRef = useRef(null);
+  const location = useLocation();
 
   // Fetch AI status on mount
   useEffect(() => {
@@ -226,7 +228,7 @@ export default function ChatWidget() {
       setSending(true);
 
       try {
-        const { reply } = await sendChatMessage(text);
+        const { reply } = await sendChatMessage(text, location.pathname);
         setMessages((prev) => [
           ...prev,
           { role: "bot", text: reply, timestamp: new Date() },
