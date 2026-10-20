@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import os
 
 import cv2
 import numpy as np
@@ -8,7 +9,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from ultralytics import YOLO
 
-from .config import CLASS_NAMES, MODEL_REGISTRY, DEFAULT_MODEL_NAME
+from .config import CLASS_NAMES, MODEL_REGISTRY, DEFAULT_MODEL_NAME, BASE_DIR, get_model_metadata
 from .explainability import EigenCAM, get_target_layer
 from .occlusion import compute_occlusion_map, occlusion_map_to_overlay
 from .rqi_engine import compute_rqi
@@ -38,32 +39,59 @@ app.add_middleware(
 logger.info(f"Loading {len(MODEL_REGISTRY)} model(s): {list(MODEL_REGISTRY.keys())}")
 _loaded_models = {}
 for _name, _path in MODEL_REGISTRY.items():
-    logger.info(f"  loading '{_name}' from {_path}")
-    _m = YOLO(_path)
+    _actual_path = _path
+    if not os.path.isabs(_actual_path) and not os.path.exists(_actual_path):
+        _candidate = os.path.join(BASE_DIR, _path)
+        if os.path.exists(_candidate):
+            _actual_path = _candidate
+    # Check if target is a zip or has a counterpart
+    if _actual_path.endswith(".zip") and os.path.exists(_actual_path):
+        _pt_variant = _actual_path[:-4]
+        if os.path.exists(_pt_variant):
+            _actual_path = _pt_variant
+
+    logger.info(f"  loading '{_name}' from {_actual_path}")
+    try:
+        _m = YOLO(_actual_path)
+    except Exception as exc:
+        logger.error(f"Failed to load model '{_name}' from '{_actual_path}': {exc}")
+        continue
+
     _is_placeholder = _m.model.nc != len(CLASS_NAMES)
     if _is_placeholder:
         logger.warning(
             "Model '%s' (%s) has %s classes, not DeepRQI's %s trained classes -- looks like a "
             "placeholder/COCO checkpoint. Predictions will run but damage_type labels will be "
             "meaningless until it's pointed at real trained weights.",
-            _name, _path, _m.model.nc, len(CLASS_NAMES),
+            _name, _actual_path, _m.model.nc, len(CLASS_NAMES),
         )
     _loaded_models[_name] = {
         "model": _m,
         "cam": EigenCAM(_m, get_target_layer(_m)),
         "path": _path,
         "is_placeholder": _is_placeholder,
+        "metadata": get_model_metadata(_name, _is_placeholder),
     }
 
 
 def _get_model_entry(name: str):
+    if not name or name == "default":
+        name = DEFAULT_MODEL_NAME
     entry = _loaded_models.get(name)
-    if entry is None:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown model '{name}'. Available: {list(_loaded_models.keys())}",
-        )
-    return entry
+    if entry is not None:
+        return entry
+
+    # Alias matching (e.g. 'yolo26n' -> 'yolo26n_v1', 'yolo26s' -> 'yolo26s_v1')
+    name_clean = name.lower().replace("-", "").replace("_", "")
+    for k, v in _loaded_models.items():
+        k_clean = k.lower().replace("-", "").replace("_", "")
+        if name_clean in k_clean or k_clean in name_clean:
+            return v
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unknown model '{name}'. Available: {list(_loaded_models.keys())}",
+    )
 
 
 @app.get("/models")
@@ -73,13 +101,22 @@ def list_models():
         "models": [
             {
                 "name": name,
+                "display_name": entry["metadata"]["display_name"],
+                "tag": entry["metadata"]["tag"],
+                "badge": entry["metadata"]["badge"],
+                "speed": entry["metadata"]["speed"],
+                "accuracy": entry["metadata"]["accuracy"],
+                "file_size": entry["metadata"]["file_size"],
+                "description": entry["metadata"]["description"],
                 "path": entry["path"],
                 "is_placeholder_model": entry["is_placeholder"],
                 "num_classes_loaded": entry["model"].model.nc,
+                "is_default": (name == DEFAULT_MODEL_NAME),
             }
             for name, entry in _loaded_models.items()
         ],
     }
+
 
 
 @app.get("/health")

@@ -14,8 +14,9 @@
   
   --good: #10b981;
   --fair: #f59e0b;
-  --poor: #ef4444;
-  --critical: #991b1b;
+  --poor: #fb923c;
+  --very-poor: #ea580c;
+  --critical: #dc2626;
 
   --font-display: 'Outfit', sans-serif;
   --font-body: 'Inter', sans-serif;
@@ -176,8 +177,7 @@ input, button, select {
   letter-spacing: 0.05em;
 }
 
-.field input,
-.field select {
+.field input {
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid var(--line);
   color: var(--text-primary);
@@ -186,11 +186,72 @@ input, button, select {
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.field input:focus,
-.field select:focus {
+.field input:focus {
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
 }
+
+.field select,
+select {
+  background-color: #0f172a !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  color: #f8fafc !important;
+  padding: 12px 42px 12px 16px !important;
+  border-radius: var(--radius) !important;
+  font-family: var(--font-body) !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a5b4fc' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 14px center !important;
+  background-size: 16px !important;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+
+.field select:hover,
+select:hover {
+  border-color: rgba(99, 102, 241, 0.6) !important;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.2) !important;
+}
+
+.field select:focus,
+select:focus {
+  border-color: var(--accent-primary) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.3), 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Ensure ALL select options have high-contrast text and dark background */
+select option {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  padding: 12px 16px !important;
+}
+
+select option:checked,
+select option:hover,
+select option:focus {
+  background-color: #312e81 !important;
+  color: #ffffff !important;
+}
+
+@keyframes fadeInDropdown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 
 /* --- Buttons --- */
 .btn-primary {

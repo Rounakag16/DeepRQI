@@ -35,10 +35,65 @@ const ROAD_MATCH_RADIUS_KM = 0.05;
 // segments, and Express would otherwise treat "models" as an :id value.
 router.get("/models", requireAuth, async (req, res) => {
   try {
-    const { data } = await axios.get(`${process.env.FASTAPI_URL}/models`);
-    res.json(data);
+    const { data } = await axios.get(`${process.env.FASTAPI_URL}/models`, { timeout: 3500 });
+    res.json({ ...data, service_online: true });
   } catch (err) {
-    res.status(502).json({ error: "Could not reach the AI service for the model list." });
+    // Resilient fallback if AI service is starting up or temporarily unreachable
+    res.json({
+      service_online: false,
+      default: "yolo26s_v1",
+      models: [
+        {
+          name: "yolo26n_v1",
+          display_name: "YOLO26-Nano",
+          tag: "Nano",
+          badge: "⚡ Ultra Fast",
+          speed: "Fastest (~12ms)",
+          accuracy: "Good",
+          file_size: "~5.4 MB",
+          description: "Ultra-lightweight model tailored for rapid mobile scans, low bandwidth, and high-FPS video.",
+          is_placeholder_model: false,
+          is_default: false,
+        },
+        {
+          name: "yolo26s_v1",
+          display_name: "YOLO26-Small",
+          tag: "Small",
+          badge: "⚖️ Balanced (Default)",
+          speed: "Fast (~18ms)",
+          accuracy: "High",
+          file_size: "~60.2 MB",
+          description: "Standard production baseline offering the optimal balance of speed and detection accuracy.",
+          is_placeholder_model: false,
+          is_default: true,
+        },
+        {
+          name: "yolo26m_v1",
+          display_name: "YOLO26-Medium",
+          tag: "Medium",
+          badge: "🎯 High Precision",
+          speed: "Moderate (~32ms)",
+          accuracy: "Very High",
+          file_size: "~131.2 MB",
+          description: "Enhanced network depth and feature representation for fine transverse and hairline cracks.",
+          is_placeholder_model: false,
+          is_default: false,
+        },
+        {
+          name: "yolo26l_v1",
+          display_name: "YOLO26-Large",
+          tag: "Large",
+          badge: "🔬 Maximum Capacity",
+          speed: "Thorough (~58ms)",
+          accuracy: "Maximum Precision",
+          file_size: "~157.9 MB",
+          description: "Deepest architecture for comprehensive road condition analysis on complex distressed asphalt.",
+          is_placeholder_model: false,
+          is_default: false,
+        },
+      ],
+      warning: "AI service currently offline or unreachable.",
+    });
   }
 });
 

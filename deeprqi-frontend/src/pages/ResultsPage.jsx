@@ -116,10 +116,15 @@ export default function ResultsPage() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "24px" }}>
         <div>
           <h2 style={{ fontSize: "22px" }}>{road.roadName}</h2>
-          <p style={{ color: "var(--text-muted)", fontSize: "13px", marginTop: "4px" }}>
-            {[road.city, road.district, road.state].filter(Boolean).join(", ") || "No location details"}
+          <p style={{ color: "var(--text-muted)", fontSize: "13px", marginTop: "4px", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+            <span>{[road.city, road.district, road.state].filter(Boolean).join(", ") || "No location details"}</span>
             {image.lat && image.lng && (
               <span className="mono"> · {image.lat.toFixed(4)}, {image.lng.toFixed(4)}</span>
+            )}
+            {image.modelUsed && (
+              <span style={{ background: "rgba(99, 102, 241, 0.18)", border: "1px solid rgba(99, 102, 241, 0.45)", color: "#c7d2fe", padding: "2px 8px", borderRadius: "100px", fontSize: "11px", fontWeight: 600 }}>
+                🧠 Model: {image.modelUsed}
+              </span>
             )}
           </p>
         </div>
@@ -153,16 +158,20 @@ export default function ResultsPage() {
           <Link
             to={`/compare/${image.id}`}
             style={{
-              background: "none",
-              border: "1px solid var(--line)",
-              color: "var(--text-muted)",
+              background: "linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(168, 85, 247, 0.2))",
+              border: "1px solid rgba(99, 102, 241, 0.5)",
+              color: "#f8fafc",
               padding: "8px 16px",
-              borderRadius: "3px",
+              borderRadius: "var(--radius)",
               fontSize: "13px",
+              fontWeight: 500,
               textDecoration: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
             }}
           >
-            Compare models
+            ⚖️ Compare models
           </Link>
           <button
             onClick={() => navigate("/upload")}

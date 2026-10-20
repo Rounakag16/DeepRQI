@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { uploadImage, getAvailableModels, ensureRoad, startSurvey, sendSurveyFrame, endSurvey } from "../api/client";
 import InfoTooltip from "../components/InfoTooltip";
+import ModelSelector from "../components/ModelSelector";
 
 export default function UploadPage() {
   const [file, setFile] = useState(null);
@@ -26,15 +27,12 @@ export default function UploadPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Only worth showing a picker once there's more than one model to pick
-    // between -- with a single model configured (the common case today)
-    // this silently does nothing and the form looks exactly as before.
     (async () => {
       try {
         const data = await getAvailableModels();
-        if (data.models?.length > 1) {
+        if (data.models && data.models.length > 0) {
           setAvailableModels(data.models);
-          setModel(data.default);
+          setModel(data.default || data.models[0].name);
         }
       } catch (err) {
         // AI service unreachable at page-load time isn't fatal here --
@@ -42,6 +40,7 @@ export default function UploadPage() {
       }
     })();
   }, []);
+
 
   const handleFile = (f) => {
     if (!f) return;
@@ -367,22 +366,27 @@ export default function UploadPage() {
             )}
           </div>
 
-          {availableModels.length > 1 && (
-            <div className="field" style={{ marginBottom: "20px" }}>
-              <label htmlFor="model">
-                Model
-                <InfoTooltip text="Which trained AI model runs the analysis. Different models can give different results for the same photo — use Compare models on a result to see them side by side." />
+          {availableModels.length > 0 && (
+            <div className="field" style={{ marginBottom: "22px" }}>
+              <label htmlFor="model" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  Inspection AI Model
+                  <InfoTooltip text="Select which trained deep-learning model inspects this road. Different variants trade off speed vs precision. Compare them side-by-side on any result." />
+                </span>
+                <span style={{ fontSize: "12px", color: "var(--text-muted)", textTransform: "none", fontWeight: 500 }}>
+                  {availableModels.length} models ready
+                </span>
               </label>
-              <select id="model" value={model} onChange={(e) => setModel(e.target.value)}>
-                {availableModels.map((m) => (
-                  <option key={m.name} value={m.name}>
-                    {m.name}
-                    {m.is_placeholder_model ? " (placeholder, untrained)" : ""}
-                  </option>
-                ))}
-              </select>
+              <ModelSelector
+                id="model"
+                models={availableModels}
+                value={model}
+                onChange={setModel}
+                disabled={loading}
+              />
             </div>
           )}
+
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
             <button type="submit" className="btn-primary" disabled={loading}>
